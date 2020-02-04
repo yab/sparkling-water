@@ -19,11 +19,11 @@ package org.apache.spark.h2o.backends.external
 
 import java.io.{File, InputStream}
 import java.net.URI
-import java.text.SimpleDateFormat
+import java.text.{MessageFormat, SimpleDateFormat}
 import java.util.Date
 
-import ai.h2o.sparkling.frame.{H2OChunk, H2OColumn, H2OFrame}
 import ai.h2o.sparkling.extensions.rest.api.Paths
+import ai.h2o.sparkling.frame.{H2OChunk, H2OColumn, H2OColumnType, H2OFrame}
 import ai.h2o.sparkling.utils.Base64Encoding
 import org.apache.http.client.utils.URIBuilder
 import org.apache.spark.h2o.utils.NodeDesc
@@ -38,9 +38,36 @@ trait RestApiUtils extends RestCommunication {
     hc.getOrElse(H2OContext.ensure()).getConf.get("spark.ext.h2o.rest.api.based.client", "false") == "true"
   }
 
-  def lockCloud(conf: H2OConf): Unit = {
+  def convertAllStringVecToCategorical(conf: H2OConf, frameId: String): Unit = {
+    val fr = getFrame(conf, frameId)
+    val columns = fr.columns.filter(_.dataType == H2OColumnType.string).map(_.name)
+    convertColumnsToCategorical(conf, frameId, columns)
+  }
+
+  def convertColumnsToCategorical(conf: H2OConf, frameId: String, columns: Array[String]): Unit = {
     val endpoint = getClusterEndpoint(conf)
-    update[CloudLockV3](endpoint, "/3/CloudLock", conf, Map("reason" -> "Locked from Sparkling Water."))
+    columns.foldLeft(frameId){ case (frameId, name) =>
+      val params = Map(
+        "ast" -> MessageFormat.format("(assign {0} (:= {0} (as.factor (cols_py {0} {1})) {1} []))", frameId, name)
+      )
+      val rapidsFrameV3 = update[RapidsFrameV3](endpoint, "99/Rapids", conf, params)
+      rapidsFrameV3.key.toString
+    }
+  }
+
+  def splitFrameToTrainAndValidationFrames(conf: H2OConf, frameId: String, splitRatio: Double): Array[String] = {
+    val endpoint = getClusterEndpoint(conf)
+    val params = Map(
+      "ratios" -> Array(splitRatio),
+      "dataset" -> frameId
+    )
+    val splitFrameV3 = update[SplitFrameV3](endpoint, "3/SplitFrame", conf, params)
+    splitFrameV3.destination_frames.map(_.name)
+  }
+
+    def lockCloud(conf: H2OConf): Unit = {
+      val endpoint = getClusterEndpoint(conf)
+      update[CloudLockV3](endpoint, "/3/CloudLock", conf, Map("reason" -> "Locked from Sparkling Water."))
   }
 
   def shutdownCluster(conf: H2OConf): Unit = {
@@ -115,7 +142,11 @@ trait RestApiUtils extends RestCommunication {
       endpoint,
       s"/3/Frames/$frameId/summary",
       conf,
+<<<<<<< HEAD
       Map("row_count" -> 0),
+=======
+      Map.empty,
+>>>>>>> [SW-1875] Ensure method prepareDatasetForFitting works in Rest API based mode
       Seq((classOf[FrameV3], "chunk_summary"), (classOf[FrameV3], "distribution_summary")))
     val frame = frames.frames(0)
     val frameChunks = query[FrameChunksV3](endpoint, s"/3/FrameChunks/$frameId", conf)
@@ -150,7 +181,7 @@ trait RestApiUtils extends RestCommunication {
   private def convertColumn(sourceColumn: ColV3): H2OColumn = {
     H2OColumn(
       name = sourceColumn.label,
-      dataType = sourceColumn.`type`,
+      dataType = H2OColumnType.fromString(sourceColumn.`type`),
       min = sourceColumn.mins(0),
       max = sourceColumn.maxs(0),
       mean = sourceColumn.mean,
@@ -161,6 +192,7 @@ trait RestApiUtils extends RestCommunication {
       domain = sourceColumn.domain,
       domainCardinality = sourceColumn.domain_cardinality)
   }
+
 
   private def convertChunk(sourceChunk: FrameChunkV3, clusterNodes: Array[NodeDesc]): H2OChunk = {
     H2OChunk(
