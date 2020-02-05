@@ -17,9 +17,10 @@
 
 package org.apache.spark.h2o.backends.external
 
-import java.io.{BufferedOutputStream, File, FileOutputStream, InputStream}
+import java.io.{BufferedOutputStream, File, FileOutputStream, InputStream, OutputStream}
 import java.net.{HttpURLConnection, URI, URL}
 
+import ai.h2o.sparkling.utils.FinalizingOutputStream
 import com.google.gson.{ExclusionStrategy, FieldAttributes, GsonBuilder}
 import org.apache.commons.io.IOUtils
 import org.apache.spark.h2o.H2OConf
@@ -74,7 +75,7 @@ trait RestCommunication extends Logging {
     * @param conf          H2O conf object
     * @return HttpUrlConnection facilitating the insertion and holding the outputStream
     */
-  protected def insert(endpoint: URI, suffix: String, conf: H2OConf): HttpURLConnection  = {
+  protected def insert(endpoint: URI, suffix: String, conf: H2OConf): OutputStream  = {
     val url = resolveUrl(endpoint, suffix)
     try {
       val connection = url.openConnection().asInstanceOf[HttpURLConnection]
@@ -82,8 +83,8 @@ trait RestCommunication extends Logging {
       connection.setRequestMethod("PUT")
       connection.setDoOutput(true)
       connection.setChunkedStreamingMode(-1) // -1 to use default size
-      connection.getOutputStream() // Initialize connection
-      connection
+      val outputStream = connection.getOutputStream()
+      new FinalizingOutputStream(outputStream, () => checkResponseCode(connection))
     } catch {
       case e: Exception => throwRestApiNotReachableException(url, e)
     }

@@ -17,12 +17,14 @@
 
 package org.apache.spark.h2o.backends.external
 
-import java.io.File
-import java.net.URI
+import java.io.{File, InputStream, OutputStream}
+import java.net.{HttpURLConnection, URI}
 import java.text.SimpleDateFormat
 import java.util.Date
 
+import ai.h2o.sparkling.extensions.rest.api.Paths
 import ai.h2o.sparkling.frame.{H2OChunk, H2OColumn, H2OFrame}
+import ai.h2o.sparkling.utils.Base64Encoding
 import org.apache.http.client.utils.URIBuilder
 import org.apache.spark.h2o.H2OConf
 import org.apache.spark.h2o.utils.NodeDesc
@@ -114,6 +116,27 @@ trait RestApiUtils extends RestCommunication {
       frameId = frame.frame_id.name,
       columns = frame.columns.map(convertColumn),
       chunks = frameChunks.chunks.map(convertChunk(_, clusterNodes)))
+  }
+
+  def putChunk(
+      node: NodeDesc,
+      conf : H2OConf,
+      frameName: String,
+      chunkId: Int,
+      expectedTypes: Array[Byte],
+      maxVecSizes: Array[Int]): OutputStream = {
+    val expectedTypesString = Base64Encoding.encode(expectedTypes)
+    val maxVecSizesString = Base64Encoding.encode(maxVecSizes)
+
+    val parameters = Map[String, String](
+      "frame_name" -> frameName,
+      "chunk_id" -> chunkId.toString,
+      "expected_types" -> expectedTypesString,
+      "max_vector_sizes" -> maxVecSizesString)
+    val query = Paths.CHUNK + parameters.map{ case (k, v) => s"$k=$v" }.mkString("?", "&", "")
+
+    val endpoint = resolveNodeEndpoint(node, conf)
+    insert(endpoint, query, conf)
   }
 
   private def convertColumn(sourceColumn: ColV3): H2OColumn = {
