@@ -142,11 +142,7 @@ trait RestApiUtils extends RestCommunication {
       endpoint,
       s"/3/Frames/$frameId/summary",
       conf,
-<<<<<<< HEAD
       Map("row_count" -> 0),
-=======
-      Map.empty,
->>>>>>> [SW-1875] Ensure method prepareDatasetForFitting works in Rest API based mode
       Seq((classOf[FrameV3], "chunk_summary"), (classOf[FrameV3], "distribution_summary")))
     val frame = frames.frames(0)
     val frameChunks = query[FrameChunksV3](endpoint, s"/3/FrameChunks/$frameId", conf)
